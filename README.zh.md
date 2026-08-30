@@ -44,7 +44,7 @@ Hermes 自带的状态栏只显示上下文窗口占用。它不显示缓存命�
 需要已经装好 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 桌面应用。
 
 ```bash
-git clone https://github.com/<你的用户名>/hermes-tally.git
+git clone https://github.com/RuotongX/hermes-tally.git
 cd hermes-tally
 
 # 1. 渲染层插件(自动热加载)
