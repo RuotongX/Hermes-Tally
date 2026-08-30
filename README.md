@@ -1,8 +1,14 @@
 # Hermes Tally
 
+[English](README.md) | [简体中文](README.zh.md)
+
 A right-sidebar usage panel for the [Hermes Agent](https://github.com/NousResearch/hermes-agent) desktop app: live token consumption, **correct** cache hit rate, context fill, and estimated cost for whatever model you're actually talking to right now.
 
 ![MIT](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-windows%20%7C%20macos%20%7C%20linux-lightgrey)
+
+<img src="assets/screenshot.png" alt="Hermes Tally right-sidebar usage panel, showing per-model token breakdown, 94% cache hit rate, context fill, and cost" width="360">
+
+*Real session: a conversation that ran on `deepseek-v4-flash` and switched to `claude-sonnet-5` mid-way. The headline (94% hit rate, 11.6M tokens) describes Claude — the model actually in use — while "Session total" (39.6M · 97%) keeps the whole-session lifetime number visible underneath, and the per-model breakdown shows every model/task involved, including Hermes' own background calls (`title_generation` on `glm-5`, `vision` on `mimo-v2.5`).*
 
 ## Why this exists
 
