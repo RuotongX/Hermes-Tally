@@ -44,7 +44,7 @@ The pane calls the backend by the session's *durable* id (resolved via `session.
 Requires an existing [Hermes Agent](https://github.com/NousResearch/hermes-agent) install with the desktop app.
 
 ```bash
-git clone https://github.com/<you>/hermes-tally.git
+git clone https://github.com/RuotongX/hermes-tally.git
 cd hermes-tally
 
 # 1. Renderer plugin (hot-loads automatically)
