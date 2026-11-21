@@ -166,11 +166,14 @@ function useUsage(rest) {
 
 /* ── derived stats ──────────────────────────────────────────────────── */
 
-// Tasks that are NOT the primary conversation loop — excluded from the
-// "current model" headline so approval/vision/title-gen calls (often on a
-// DIFFERENT cheap model) don't dilute or misrepresent the active model's
-// own cache behavior. Still shown individually in the by-model breakdown.
-const AUX_TASKS = new Set(['approval', 'vision', 'title_generation', 'compression'])
+// The primary conversation loop is stored with an EMPTY task; every named task
+// (approval, vision, title_generation, compression, background_review,
+// cache_warm, ... — Hermes keeps adding them) is a side-call, often on a
+// DIFFERENT cheap model. Those are excluded from the "current model" headline so
+// they don't dilute the active model's own cache behavior, but still show
+// individually in the by-model breakdown. Matching "has a task" instead of a
+// hard-coded list means new Hermes task names can't leak into the headline.
+const isAuxTask = task => Boolean(task)
 
 function sumRows(rows) {
   return rows.reduce(
@@ -197,7 +200,7 @@ function deriveStats(usage, cache, breakdown) {
   // otherwise show a cache hit rate frozen by history, never reflecting
   // the model actually in use right now.
   const currentModelRows = liveModel
-    ? models.filter(m => m.model === liveModel && !AUX_TASKS.has(m.task))
+    ? models.filter(m => m.model === liveModel && !isAuxTask(m.task))
     : []
   const scoped = currentModelRows.length > 0 ? sumRows(currentModelRows) : null
 
@@ -329,6 +332,7 @@ function UsagePane({ rest }) {
         children: [
           jsx('span', { style: { fontWeight: 500, color: 'var(--ui-text-primary)' }, children: t('paneTitle') }),
           jsx('span', {
+            title: s.model || sessionId || '',
             style: { ...T.dim, maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
             children: s.model || sessionId?.slice(0, 8) || '',
           }),
@@ -407,10 +411,12 @@ function UsagePane({ rest }) {
           jsx('span', { style: { ...T.dim, marginBottom: 2 }, children: t('perModel') }),
           ...(s.models.length
             ? s.models.map(m => {
-                const isCurrent = m.model === s.model && !AUX_TASKS.has(m.task)
+                const isCurrent = m.model === s.model && !isAuxTask(m.task)
                 const mHit = m.cache_read + m.cache_write + m.input > 0 ? Math.round((m.cache_read / (m.cache_read + m.cache_write + m.input)) * 100) : null
+                const fullName = m.model + (m.task ? ' · ' + m.task : '')
                 return jsxs('div', {
                   style: { ...T.row },
+                  title: fullName,
                   children: [
                     jsx('span', {
                       style: {
@@ -420,7 +426,7 @@ function UsagePane({ rest }) {
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
                       },
-                      children: (isCurrent ? '● ' : '') + m.model + (m.task ? ' · ' + m.task : ''),
+                      children: (isCurrent ? '● ' : '') + fullName,
                     }),
                     jsx('span', {
                       style: { ...T.dim, ...T.mono },

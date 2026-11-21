@@ -80,6 +80,8 @@ rm -rf ~/.hermes/desktop-plugins/usage-panel ~/.hermes/plugins/usage-panel
 - 桌面端的 `host.state.activeSessionId` 是一个**运行时 id**(例如 `5d6aa061`),不是 `state.db` 里作为主键的**持久 id**(例如 `20260811_114221_7caa06`)。插件通过 `session.active_list` 解析这个映射,它返回的每一行都带 `session_key`(即持久 id)。如果后端查询直接用运行时 id,会静默返回"找不到"。
 - `sessions` 表的字段是这个会话**用过的所有模型/任务的生涯累计**,不是"当前模型的数字"。按 (模型, 任务) 拆分的数据在 `session_model_usage` 表里;本插件会把这张表过滤到当前活跃模型的非辅助调用行,作为头部数字。
 - 缓存命中率公式:`cache_read / (cache_read + cache_write + input)`。千万不要把 `cache_write` 从分母里漏掉——原因见上面"为什么做这个"一节。
+- **Hermes ≥ 0.23**:`hermes_state.SessionDB` 已弃用(`_conn` 句柄已移除,计划 0.27 删除),新的存储接口也没有按模型/按任务的用量读取器。后端因此自己以只读方式(`mode=ro` + `PRAGMA query_only`)打开 `state.db`,会话不在当前 profile 时会回退去查其它 profile 的 `state.db`。在 0.23+ 上用 `SessionDB._conn` 会抛 `AttributeError` → HTTP 500 → 面板的缓存和成本显示 `—`。
+- `session_model_usage` 里,主对话循环的 `task` 是**空串**;任何有名字的 task(`approval`、`vision`、`background_review`、`cache_warm` ……)都是旁路调用。标题数据按"无 task"过滤,新增的 task 名不会混进去。
 
 ## 相关项目
 

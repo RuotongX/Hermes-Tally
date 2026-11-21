@@ -80,6 +80,8 @@ For anyone extending this (or debugging why a number is `0`/`—`):
 - The desktop's `host.state.activeSessionId` is a **runtime id** (e.g. `5d6aa061`), not the **durable id** used as the primary key in `state.db` (e.g. `20260811_114221_7caa06`). The plugin resolves the mapping via `session.active_list`, whose rows carry `session_key` (the durable id). A backend lookup keyed on the runtime id will silently return "not found."
 - `sessions` table columns are a **lifetime aggregate** across every model/task the session has ever used, not "the current model's numbers." The per-(model, task) breakdown lives in `session_model_usage`; this plugin filters that table to the live model's non-auxiliary rows for the headline.
 - Cache hit rate: `cache_read / (cache_read + cache_write + input)`. Do not drop `cache_write` from the denominator — see [Why this exists](#why-this-exists).
+- **Hermes ≥ 0.23**: `hermes_state.SessionDB` is deprecated (its `_conn` handle is gone, removal scheduled for 0.27) and the new storage interface has no per-model/per-task usage reader. The backend therefore opens `state.db` itself, read-only (`mode=ro` + `PRAGMA query_only`), and falls back to sibling profiles' `state.db` when the session is not in the request's profile. Using `SessionDB._conn` on 0.23+ raises `AttributeError` → HTTP 500 → the pane shows `—` for cache and cost.
+- In `session_model_usage`, the primary conversation loop has an **empty** `task`; any named task (`approval`, `vision`, `background_review`, `cache_warm`, …) is a side-call. The headline filters on "no task", so new task names never leak into it.
 
 ## Related projects
 

@@ -19,6 +19,11 @@ output_tokens). The price list is cached on disk for 6 h; if OpenRouter is
 unreachable the last good copy is used. Models with no OpenRouter match get
 cost = null and are listed in ``unpriced_models``.
 
+Reads ``state.db`` straight through a read-only SQLite connection. Hermes
+>= 0.23 deprecated ``hermes_state.SessionDB`` (its ``_conn`` attribute is gone,
+removal scheduled for 0.27) and the new storage interface has no per-model /
+per-task usage reader, so this plugin owns that one query.
+
 Requires being enabled: ``hermes plugins enable usage-panel``.
 """
 
@@ -27,6 +32,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sqlite3
 import time
 import urllib.request
 from pathlib import Path
@@ -69,15 +75,6 @@ _MODEL_COLS = (
 _price_state: Dict[str, Any] = {"ts": 0.0, "index": None, "bare": None, "fail_ts": 0.0}
 
 
-def _open_db():
-    from hermes_state import SessionDB
-
-    return SessionDB(read_only=True)
-
-
-# ── OpenRouter price list ──────────────────────────────────────────────────
-
-
 def _hermes_home() -> Path:
     try:
         from hermes_constants import get_hermes_home
@@ -85,6 +82,80 @@ def _hermes_home() -> Path:
         return Path(get_hermes_home())
     except Exception:
         return Path(os.environ.get("HERMES_HOME") or (Path.home() / ".hermes"))
+
+
+def _state_db_candidates() -> List[Path]:
+    """state.db files to search: the request's profile first, then every other profile.
+
+    ``ctx.rest`` is profile-aware, so ``get_hermes_home()`` normally already names
+    the right one; the extra profiles only matter when one gateway process serves
+    several and the session lives in a sibling.
+    """
+    home = _hermes_home()
+    found: List[Path] = []
+    try:
+        from persistence_assembly import profile_scope, store_location
+
+        loc = store_location(profile_scope())
+        if loc is not None:
+            found.append(Path(loc))
+    except Exception:
+        pass
+    found.append(home / "state.db")
+    root = home.parent.parent if home.parent.name == "profiles" else home
+    found.append(root / "state.db")
+    found.extend(sorted((root / "profiles").glob("*/state.db")))
+    seen: set = set()
+    out: List[Path] = []
+    for p in found:
+        key = os.path.normcase(str(p.resolve()))
+        if key not in seen and p.is_file():
+            seen.add(key)
+            out.append(p)
+    return out
+
+
+def _open_ro(path: Path) -> sqlite3.Connection:
+    # as_uri() percent-encodes '?'/'#' in the path; mode=ro never writes, never creates.
+    conn = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=5)
+    conn.execute("PRAGMA query_only = ON")
+    return conn
+
+
+def _query_session(session_id: str):
+    """Return (session_row | None, [session_model_usage rows]) from the first state.db that has the session."""
+    sum_sql = ", ".join(f"SUM(COALESCE({col}, 0))" for col, _ in _MODEL_COLS[2:])
+    for path in _state_db_candidates():
+        try:
+            conn = _open_ro(path)
+        except sqlite3.Error:
+            continue
+        try:
+            row = conn.execute(
+                "SELECT model, input_tokens, output_tokens, cache_read_tokens, "
+                "cache_write_tokens, reasoning_tokens, estimated_cost_usd, "
+                "actual_cost_usd, api_call_count "
+                "FROM sessions WHERE id = ?",
+                (session_id,),
+            ).fetchone()
+            if row is None:
+                continue
+            model_rows = conn.execute(
+                f"SELECT model, task, {sum_sql} "
+                "FROM session_model_usage WHERE session_id = ? "
+                "GROUP BY model, task "
+                "ORDER BY SUM(COALESCE(input_tokens, 0)) + SUM(COALESCE(output_tokens, 0)) DESC",
+                (session_id,),
+            ).fetchall()
+            return row, model_rows
+        except sqlite3.Error:
+            continue
+        finally:
+            conn.close()
+    return None, []
+
+
+# ── OpenRouter price list ──────────────────────────────────────────────────
 
 
 def _price_cache_path() -> Path:
@@ -212,26 +283,7 @@ def _cost_usd(model: str, inp: int, out: int, cache_read: int, cache_write: int)
 
 @router.get("/usage/{session_id}")
 async def session_usage(session_id: str) -> Dict[str, Any]:
-    db = _open_db()
-    try:
-        row = db._conn.execute(
-            "SELECT model, input_tokens, output_tokens, cache_read_tokens, "
-            "cache_write_tokens, reasoning_tokens, estimated_cost_usd, "
-            "actual_cost_usd, api_call_count "
-            "FROM sessions WHERE id = ?",
-            (session_id,),
-        ).fetchone()
-
-        sum_sql = ", ".join(f"SUM(COALESCE({col}, 0))" for col, _ in _MODEL_COLS[2:])
-        model_rows = db._conn.execute(
-            f"SELECT model, task, {sum_sql} "
-            "FROM session_model_usage WHERE session_id = ? "
-            "GROUP BY model, task "
-            "ORDER BY SUM(COALESCE(input_tokens, 0)) + SUM(COALESCE(output_tokens, 0)) DESC",
-            (session_id,),
-        ).fetchall()
-    finally:
-        db.close()
+    row, model_rows = _query_session(session_id)
 
     _load_price_index()  # refresh/warm the OpenRouter price list
 
